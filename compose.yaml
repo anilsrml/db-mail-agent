@@ -1,0 +1,60 @@
+services:
+  postgres:
+    image: postgres:17-alpine
+    environment:
+      POSTGRES_DB: ${POSTGRES_DB}
+      POSTGRES_USER: ${POSTGRES_USER}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
+      POSTGRES_READER_PASSWORD: ${POSTGRES_READER_PASSWORD}
+    ports:
+      # Hostta 5433 kullanılır; konteynerler kendi aralarında PostgreSQL'in
+      # standart 5432 portuyla haberleşmeye devam eder.
+      - "5433:5432"
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+      - ./db/init:/docker-entrypoint-initdb.d:ro
+      - ./db/seed.sql:/workspace/db/seed.sql:ro
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U $${POSTGRES_USER} -d $${POSTGRES_DB}"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+  mcp-server:
+    build: .
+    env_file: .env
+    command: uvicorn app.mcp_server:app --host 0.0.0.0 --port 8003
+    depends_on:
+      postgres:
+        condition: service_healthy
+    ports:
+      - "8003:8003"
+
+  telegram-agent:
+    build: .
+    env_file: .env
+    command: uvicorn app.telegram_agent:app --host 0.0.0.0 --port 8002
+    ports:
+      - "8002:8002"
+
+  db-agent:
+    build: .
+    env_file: .env
+    command: uvicorn app.db_agent:app --host 0.0.0.0 --port 8001
+    depends_on:
+      - mcp-server
+      - telegram-agent
+    ports:
+      - "8001:8001"
+
+  web:
+    build: .
+    env_file: .env
+    command: uvicorn app.web:app --host 0.0.0.0 --port 8000
+    depends_on:
+      - db-agent
+    ports:
+      - "8000:8000"
+
+volumes:
+  postgres_data:

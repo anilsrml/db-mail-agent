@@ -1,0 +1,347 @@
+<!doctype html>
+<html lang="tr">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="description" content="PostgreSQL MCP ve iki FastAPI agent arasındaki stok kontrolü eğitim demosu.">
+  <title>Stok Agent Laboratuvarı</title>
+  <style>
+    :root {
+      color-scheme: dark;
+      --bg: #07111f;
+      --surface: #0d1b2d;
+      --surface-2: #12243a;
+      --border: #29415e;
+      --text: #f2f7ff;
+      --muted: #9fb2ca;
+      --cyan: #34d6c7;
+      --cyan-soft: rgba(52, 214, 199, .12);
+      --amber: #ffbe55;
+      --red: #ff6b78;
+      --green: #6ee7a8;
+    }
+
+    * { box-sizing: border-box; }
+
+    body {
+      margin: 0;
+      min-height: 100vh;
+      font-family: Inter, ui-sans-serif, system-ui, -apple-system, "Segoe UI", sans-serif;
+      font-size: 16px;
+      line-height: 1.5;
+      color: var(--text);
+      background:
+        radial-gradient(circle at 12% 0%, rgba(52, 214, 199, .10), transparent 28rem),
+        var(--bg);
+    }
+
+    button, input { font: inherit; }
+
+    .shell {
+      width: min(1180px, calc(100% - 32px));
+      margin: 0 auto;
+      padding: 34px 0 56px;
+    }
+
+    header {
+      display: flex;
+      align-items: flex-start;
+      justify-content: space-between;
+      gap: 24px;
+      margin-bottom: 26px;
+    }
+
+    h1, h2, p { margin-top: 0; }
+    h1 { margin-bottom: 6px; font-size: clamp(1.75rem, 4vw, 2.6rem); line-height: 1.1; }
+    h2 { margin-bottom: 16px; font-size: 1.05rem; letter-spacing: .02em; }
+    .subtitle { margin-bottom: 0; color: var(--muted); }
+
+    .badge {
+      display: inline-flex;
+      align-items: center;
+      gap: 8px;
+      padding: 8px 12px;
+      border: 1px solid var(--border);
+      border-radius: 999px;
+      color: var(--cyan);
+      background: var(--cyan-soft);
+      white-space: nowrap;
+    }
+
+    .badge::before {
+      content: "";
+      width: 8px;
+      height: 8px;
+      border-radius: 50%;
+      background: var(--cyan);
+      box-shadow: 0 0 14px var(--cyan);
+    }
+
+    .pipeline {
+      display: grid;
+      grid-template-columns: repeat(4, 1fr);
+      gap: 1px;
+      margin-bottom: 24px;
+      overflow: hidden;
+      border: 1px solid var(--border);
+      border-radius: 14px;
+      background: var(--border);
+    }
+
+    .pipeline div { padding: 13px 15px; background: var(--surface); }
+    .pipeline strong { display: block; font-size: .875rem; color: var(--cyan); }
+    .pipeline span { font-size: .8rem; color: var(--muted); }
+
+    .workspace {
+      display: grid;
+      grid-template-columns: minmax(0, .9fr) minmax(420px, 1.35fr);
+      gap: 20px;
+    }
+
+    .stack { display: grid; gap: 20px; align-content: start; }
+
+    .panel {
+      padding: 22px;
+      border: 1px solid var(--border);
+      border-radius: 16px;
+      background: linear-gradient(145deg, rgba(18, 36, 58, .95), rgba(13, 27, 45, .95));
+      box-shadow: 0 18px 60px rgba(0, 0, 0, .18);
+    }
+
+    .products { display: grid; gap: 10px; }
+    .product {
+      display: grid;
+      grid-template-columns: 1fr auto;
+      gap: 4px 18px;
+      padding: 14px;
+      border: 1px solid var(--border);
+      border-radius: 12px;
+      background: rgba(7, 17, 31, .55);
+    }
+    .product-name { font-weight: 700; }
+    .product-id { font-size: .82rem; color: var(--muted); }
+    .stock { grid-row: span 2; align-self: center; font-weight: 800; }
+    .stock.in { color: var(--green); }
+    .stock.out { color: var(--red); }
+
+    label { display: block; margin-bottom: 8px; font-weight: 700; }
+    .hint { margin: 8px 0 0; color: var(--muted); font-size: .875rem; }
+    .request-row { display: flex; gap: 10px; }
+    input {
+      width: 100%;
+      min-width: 0;
+      padding: 12px 14px;
+      color: var(--text);
+      border: 1px solid var(--border);
+      border-radius: 10px;
+      outline: none;
+      background: rgba(7, 17, 31, .8);
+    }
+    input:focus { border-color: var(--cyan); box-shadow: 0 0 0 3px var(--cyan-soft); }
+    button {
+      padding: 12px 18px;
+      border: 0;
+      border-radius: 10px;
+      color: #041512;
+      font-weight: 800;
+      cursor: pointer;
+      background: var(--cyan);
+    }
+    button:hover { filter: brightness(1.08); }
+    button:disabled { cursor: wait; opacity: .55; }
+
+    .result {
+      min-height: 104px;
+      padding: 16px;
+      border: 1px dashed var(--border);
+      border-radius: 12px;
+      background: rgba(7, 17, 31, .45);
+    }
+    .result.empty { display: grid; place-items: center; color: var(--muted); }
+    .result strong { display: block; margin-bottom: 6px; }
+    .result.IN_STOCK strong { color: var(--green); }
+    .result.OUT_OF_STOCK strong, .result.ERROR strong { color: var(--red); }
+    .result.PRODUCT_NOT_FOUND strong { color: var(--amber); }
+
+    .log-head { display: flex; align-items: center; justify-content: space-between; gap: 12px; }
+    .request-id { color: var(--muted); font: .8rem ui-monospace, SFMono-Regular, Consolas, monospace; }
+    .logs { display: grid; gap: 8px; max-height: 520px; overflow: auto; padding-right: 4px; }
+    .log {
+      display: grid;
+      grid-template-columns: 104px 1fr;
+      gap: 10px;
+      padding: 11px 12px;
+      border-left: 3px solid var(--border);
+      border-radius: 6px;
+      background: rgba(7, 17, 31, .55);
+    }
+    .log[data-component="db-agent"] { border-left-color: var(--cyan); }
+    .log[data-component="telegram-agent"] { border-left-color: var(--amber); }
+    .log-component { color: var(--muted); font: .75rem ui-monospace, SFMono-Regular, Consolas, monospace; }
+    .log-summary { font-size: .9rem; }
+    .log-event { margin-top: 3px; color: var(--muted); font: .75rem ui-monospace, SFMono-Regular, Consolas, monospace; }
+
+    @media (max-width: 850px) {
+      header, .request-row { flex-direction: column; }
+      .workspace { grid-template-columns: 1fr; }
+      .pipeline { grid-template-columns: 1fr 1fr; }
+      button { width: 100%; }
+    }
+
+    @media (max-width: 500px) {
+      .shell { width: min(100% - 20px, 1180px); padding-top: 22px; }
+      .pipeline { grid-template-columns: 1fr; }
+      .panel { padding: 17px; }
+      .log { grid-template-columns: 1fr; gap: 4px; }
+    }
+  </style>
+</head>
+<body>
+  <main class="shell">
+    <header>
+      <div>
+        <h1>Stok Agent Laboratuvarı</h1>
+        <p class="subtitle">Müşteri talebinden PostgreSQL sorgusuna, agent mesajından Telegram uyarısına.</p>
+      </div>
+      <span class="badge">Eğitim modu</span>
+    </header>
+
+    <section class="pipeline" aria-label="Sistem akışı">
+      <div><strong>01 · Talep</strong><span>Web arayüzü</span></div>
+      <div><strong>02 · DB Agent</strong><span>OpenRouter + araç seçimi</span></div>
+      <div><strong>03 · MCP</strong><span>Salt-okunur PostgreSQL</span></div>
+      <div><strong>04 · Uyarı</strong><span>Stok 0 ise Telegram Agent</span></div>
+    </section>
+
+    <div class="workspace">
+      <div class="stack">
+        <section class="panel" aria-labelledby="catalog-title">
+          <h2 id="catalog-title">Demo kataloğu</h2>
+          <div id="products" class="products" aria-live="polite">
+            <p class="hint">Ürünler yükleniyor…</p>
+          </div>
+        </section>
+
+        <section class="panel" aria-labelledby="request-title">
+          <h2 id="request-title">Müşteri talebi</h2>
+          <form id="request-form">
+            <label for="message">Hangi ürünü istiyorsunuz?</label>
+            <div class="request-row">
+              <input id="message" name="message" maxlength="500" required
+                placeholder="Örn. Mekanik klavyeniz var mı?">
+              <button id="submit" type="submit">Talebi gönder</button>
+            </div>
+            <p class="hint">Ürün adını doğal bir cümle içinde yazabilirsiniz.</p>
+          </form>
+        </section>
+
+        <section class="panel" aria-labelledby="result-title">
+          <h2 id="result-title">Müşteri yanıtı</h2>
+          <div id="result" class="result empty" aria-live="polite">Henüz bir talep gönderilmedi.</div>
+        </section>
+      </div>
+
+      <section class="panel" aria-labelledby="logs-title">
+        <div class="log-head">
+          <h2 id="logs-title">Agent akışı</h2>
+          <span id="request-id" class="request-id"></span>
+        </div>
+        <div id="logs" class="logs" aria-live="polite">
+          <p class="hint">Talep gönderildiğinde karar ve araç adımları burada görünecek.</p>
+        </div>
+      </section>
+    </div>
+  </main>
+
+  <script>
+    const productsElement = document.querySelector('#products');
+    const form = document.querySelector('#request-form');
+    const messageInput = document.querySelector('#message');
+    const submitButton = document.querySelector('#submit');
+    const resultElement = document.querySelector('#result');
+    const logsElement = document.querySelector('#logs');
+    const requestIdElement = document.querySelector('#request-id');
+
+    function element(tag, className, text) {
+      const item = document.createElement(tag);
+      if (className) item.className = className;
+      if (text !== undefined) item.textContent = text;
+      return item;
+    }
+
+    async function loadProducts() {
+      try {
+        const response = await fetch('/api/products');
+        if (!response.ok) throw new Error('Katalog alınamadı');
+        const data = await response.json();
+        productsElement.replaceChildren();
+        data.products.forEach((product) => {
+          const card = element('article', 'product');
+          card.append(
+            element('div', 'product-name', product.name),
+            element('div', `stock ${product.stock_quantity === 0 ? 'out' : 'in'}`,
+              product.stock_quantity === 0 ? 'Stok yok' : `Stok ${product.stock_quantity}`),
+            element('div', 'product-id', product.id),
+          );
+          productsElement.append(card);
+        });
+      } catch {
+        productsElement.replaceChildren(element('p', 'hint', 'Katalog servisine ulaşılamadı.'));
+      }
+    }
+
+    function renderTrace(trace) {
+      logsElement.replaceChildren();
+      trace.forEach((entry) => {
+        const row = element('article', 'log');
+        row.dataset.component = entry.component;
+        const component = element('div', 'log-component', entry.component);
+        const body = element('div');
+        body.append(
+          element('div', 'log-summary', entry.summary),
+          element('div', 'log-event', entry.event),
+        );
+        row.append(component, body);
+        logsElement.append(row);
+      });
+    }
+
+    form.addEventListener('submit', async (event) => {
+      event.preventDefault();
+      submitButton.disabled = true;
+      submitButton.textContent = 'İşleniyor…';
+      resultElement.className = 'result empty';
+      resultElement.textContent = 'Agent talebi işliyor…';
+      logsElement.replaceChildren(element('p', 'hint', 'Akış başlatıldı…'));
+
+      try {
+        const response = await fetch('/api/customer-requests', {
+          method: 'POST',
+          headers: {'Content-Type': 'application/json'},
+          body: JSON.stringify({message: messageInput.value}),
+        });
+        if (!response.ok) throw new Error('Talep servisi yanıt vermedi');
+        const data = await response.json();
+        resultElement.className = `result ${data.status}`;
+        resultElement.replaceChildren(
+          element('strong', '', data.status),
+          element('span', '', data.customer_message),
+        );
+        requestIdElement.textContent = data.request_id;
+        renderTrace(data.trace);
+      } catch (error) {
+        resultElement.className = 'result ERROR';
+        resultElement.replaceChildren(
+          element('strong', '', 'BAĞLANTI HATASI'),
+          element('span', '', error.message),
+        );
+      } finally {
+        submitButton.disabled = false;
+        submitButton.textContent = 'Talebi gönder';
+      }
+    });
+
+    loadProducts();
+  </script>
+</body>
+</html>
